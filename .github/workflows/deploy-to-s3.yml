@@ -25,7 +25,7 @@ jobs:
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
       BUCKET: ${{ vars.S3_BUCKET }}  # ⬅️ Cambiado a S3_BUCKET
       PREFIX: ${{ vars.PREFIX }}
-      SECRET_DATA: ${{ secrets.MY_S3_SECRET_DATA }}  # ⬅️ Cambiado a MY_S3_SECRET_DATA
+      SECRET_DATA: ${{ secrets.MY_S3_SECRET_DATA }}  # ⬅️ Cambiado a MY_S3_SECRET_DATA (AHORA SI CREO)
 
     steps:
       - name: Checkout Code
