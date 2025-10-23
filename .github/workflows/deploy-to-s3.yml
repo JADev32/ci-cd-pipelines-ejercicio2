@@ -10,7 +10,7 @@ on:
 # Permisos requeridos para el OIDC (¡Esencial!)
 permissions:
   id-token: write # Permite que el job obtenga el token OIDC
-  contents: read  # Permite checkout del código
+  contents: read  # Permite checkout del código (agrego esto a modo de prueba)
 
 jobs:
   deploy_to_s3:
