@@ -14,18 +14,18 @@ permissions:
 
 jobs:
   deploy_to_s3:
-    # 1. ACTUALIZACIÓN: Uso del Environment especificado
-    environment: environment-pipelines
+    # CORRECCIÓN: Usar el environment "production" que ya tienes configurado
+    environment: production
     runs-on: ubuntu-latest
 
     # Definición de las variables y secrets del Environment
     env:
-      # 2. ACTUALIZACIÓN: Consumo de variables del Environment
+      # CORRECCIÓN: Usar las variables exactas que tienes en GitHub
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-      BUCKET: ${{ vars.BUCKET_NAME }}
+      BUCKET: ${{ vars.S3_BUCKET }}  # ⬅️ Cambiado a S3_BUCKET
       PREFIX: ${{ vars.PREFIX }}
-      SECRET_DATA: ${{ secrets.APP_SECRET }}
+      SECRET_DATA: ${{ secrets.MY_S3_SECRET_DATA }}  # ⬅️ Cambiado a MY_S3_SECRET_DATA
 
     steps:
       - name: Checkout Code
@@ -56,7 +56,7 @@ jobs:
           CONTENT+="Run ID: ${RUN_ID}\n"
           CONTENT+="Commit SHA: ${COMMIT_SHA}\n"
           CONTENT+="Branch: ${{ github.ref_name }}\n"
-          CONTENT+="Environment Secret Value: ${{ env.SECRET_DATA }}\n" # <-- Imprime: SiVesEstaVariableFuncionaBien
+          CONTENT+="Environment Secret Value: ${{ env.SECRET_DATA }}\n" # <-- Imprimirá el valor de MY_S3_SECRET_DATA
           
           FILE_NAME="deployment-artifact-${TIMESTAMP}.txt"
           echo -e "$CONTENT" > "$FILE_NAME"
