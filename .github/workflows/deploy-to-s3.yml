@@ -1,0 +1,128 @@
+name: Deploy to S3 via OIDC
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+      version:
+        description: 'Version to deploy'
+        required: false
+        type: string
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  S3_BUCKET: ${{ vars.S3_BUCKET }}
+
+jobs:
+  deploy:
+    name: Deploy to S3
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: https://${{ vars.S3_BUCKET }}.s3.${{ env.AWS_REGION }}.amazonaws.com
+
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHubActions-Deploy
+
+    - name: Debug Environment variables
+      run: |
+        echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+        echo "AWS Region: ${{ env.AWS_REGION }}"
+        echo "S3 Bucket: ${{ env.S3_BUCKET }}"
+        echo "Git SHA: ${{ github.sha }}"
+        echo "Git Ref: ${{ github.ref }}"
+
+    - name: Create deployment file
+      run: |
+        TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        cat > deployment-info.json << EOF
+        {
+          "deployment": {
+            "timestamp": "$TIMESTAMP",
+            "commit_sha": "${{ github.sha }}",
+            "commit_message": "${{ github.event.head_commit.message }}",
+            "branch": "${{ github.ref }}",
+            "repository": "${{ github.repository }}",
+            "run_id": "${{ github.run_id }}",
+            "environment": "${{ github.event.inputs.environment || 'production' }}",
+            "version": "${{ github.event.inputs.version || vars.APP_VERSION || '1.0.0' }}"
+          },
+          "application": {
+            "secret_reference": "${{ secrets.APP_SECRET != null && '***SET***' || '***MISSING***' }}",
+            "variables": {
+              "APP_VERSION": "${{ vars.APP_VERSION || '1.0.0' }}",
+              "ENVIRONMENT": "${{ vars.ENVIRONMENT || 'production' }}"
+            }
+          },
+          "aws": {
+            "region": "${{ env.AWS_REGION }}",
+            "bucket": "${{ env.S3_BUCKET }}",
+            "role_arn": "${{ secrets.AWS_ROLE_ARN != null && '***SET***' || '***MISSING***' }}"
+          }
+        }
+        EOF
+        
+        echo "=== Deployment File Content ==="
+        cat deployment-info.json
+
+    - name: Upload to S3
+      run: |
+        # Crear nombre de archivo único
+        FILENAME="deployments/deploy-${{ github.sha }}-${{ github.run_id }}.json"
+        
+        # Subir a S3
+        aws s3 cp deployment-info.json s3://${{ env.S3_BUCKET }}/$FILENAME
+        
+        # También subir como latest.json
+        aws s3 cp deployment-info.json s3://${{ env.S3_BUCKET }}/deployments/latest.json
+        
+        echo "File uploaded to: s3://${{ env.S3_BUCKET }}/$FILENAME"
+        echo "Latest file: s3://${{ env.S3_BUCKET }}/deployments/latest.json"
+
+    - name: Verify S3 upload
+      run: |
+        # Verificar que el archivo existe en S3
+        aws s3 ls s3://${{ env.S3_BUCKET }}/deployments/ --recursive --human-readable
+        
+        # Obtener información del archivo latest
+        echo "=== Latest Deployment Info ==="
+        aws s3 cp s3://${{ env.S3_BUCKET }}/deployments/latest.json - || echo "Latest file not found"
+
+    - name: Create deployment summary
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+        echo "| ✅ AWS Authentication | Success | OIDC with assumed role |" >> $GITHUB_STEP_SUMMARY
+        echo "| ✅ Environment | Loaded | ${{ github.event.inputs.environment || 'production' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| ✅ Deployment File | Created | Includes secrets and metadata |" >> $GITHUB_STEP_SUMMARY
+        echo "| ✅ S3 Upload | Success | s3://${{ env.S3_BUCKET }}/deployments/ |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Timestamp:** $(date -u)" >> $GITHUB_STEP_SUMMARY
