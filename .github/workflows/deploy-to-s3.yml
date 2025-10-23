@@ -81,7 +81,7 @@ jobs:
           "aws": {
             "region": "${{ env.AWS_REGION }}",
             "bucket": "${{ env.S3_BUCKET }}",
-            "role_arn": "${{ secrets.AWS_ROLE_ARN != null && '***SET***' || '***MISSING***' }}"
+            "role_arn": "${{ vars.AWS_ROLE_ARN != null && '***SET***' || '***MISSING***' }}"
           }
         }
         EOF
