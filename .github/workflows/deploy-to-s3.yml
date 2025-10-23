@@ -1,107 +1,74 @@
-name: Deploy to S3 via OIDC
+name: CI/CD - OIDC S3 Upload
 
+# Ejecución automática al hacer push al branch 'main' y ejecución manual.
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-        - production
-        - staging
-      version:
-        description: 'Version to deploy'
-        required: false
-        type: string
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  S3_BUCKET: ${{ vars.BUCKET_NAME }}  # ⬅️ CORREGIDO
+# Permisos requeridos para el OIDC (¡Esencial!)
+permissions:
+  id-token: write # Permite que el job obtenga el token OIDC
+  contents: read  # Permite checkout del código
 
 jobs:
-  deploy:
-    name: Deploy to S3
+  deploy_to_s3:
+    # 1. ACTUALIZACIÓN: Uso del Environment especificado
+    environment: environment-pipelines
     runs-on: ubuntu-latest
-    environment: 
-      name: ${{ github.event.inputs.environment || 'production' }}
-      url: https://${{ vars.BUCKET_NAME }}.s3.${{ env.AWS_REGION }}.amazonaws.com  # ⬅️ CORREGIDO
 
-    permissions:
-      id-token: write
-      contents: read
-      actions: read
+    # Definición de las variables y secrets del Environment
+    env:
+      # 2. ACTUALIZACIÓN: Consumo de variables del Environment
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      BUCKET: ${{ vars.BUCKET_NAME }}
+      PREFIX: ${{ vars.PREFIX }}
+      SECRET_DATA: ${{ secrets.APP_SECRET }}
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-        aws-region: ${{ env.AWS_REGION }}
-        role-session-name: GitHubActions-Deploy
+      # (1) Asumir un Role en AWS usando OIDC
+      - name: Configure AWS Credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Uso de la variable del Environment para el ARN
+          role-to-assume: ${{ env.AWS_ROLE_ARN }} 
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-s3-upload-session
 
-    - name: Debug Environment variables
-      run: |
-        echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
-        echo "AWS Region: ${{ env.AWS_REGION }}"
-        echo "S3 Bucket: ${{ env.S3_BUCKET }}"
-        echo "AWS Role ARN: ${{ vars.AWS_ROLE_ARN }}"
-        echo "Git SHA: ${{ github.sha }}"
-        echo "Git Ref: ${{ github.ref }}"
+      # (2) Crear el archivo de salida con Secret y Metadatos
+      - name: Create Artifact File
+        id: create_file
+        run: |
+          # Metadatos de la ejecución
+          TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+          RUN_ID=${{ github.run_id }}
+          COMMIT_SHA=${{ github.sha }}
 
-    - name: Create deployment file
-      run: |
-        TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        cat > deployment-info.json << EOF
-        {
-          "deployment": {
-            "timestamp": "$TIMESTAMP",
-            "commit_sha": "${{ github.sha }}",
-            "commit_message": "${{ github.event.head_commit.message }}",
-            "branch": "${{ github.ref }}",
-            "repository": "${{ github.repository }}",
-            "run_id": "${{ github.run_id }}",
-            "environment": "${{ github.event.inputs.environment || 'production' }}",
-            "version": "${{ github.event.inputs.version || '1.0.0' }}"
-          },
-          "application": {
-            "bucket": "${{ env.S3_BUCKET }}",
-            "region": "${{ env.AWS_REGION }}",
-            "role_arn": "${{ vars.AWS_ROLE_ARN }}"
-          }
-        }
-        EOF
-        
-        echo "=== Deployment File Content ==="
-        cat deployment-info.json
+          # Generar el contenido del archivo (incluye Secret y metadatos)
+          CONTENT="Deployment Artifact Generated via GitHub Actions\n"
+          CONTENT+="---------------------------------------------------\n"
+          CONTENT+="Date/Time: ${TIMESTAMP}\n"
+          CONTENT+="Run ID: ${RUN_ID}\n"
+          CONTENT+="Commit SHA: ${COMMIT_SHA}\n"
+          CONTENT+="Branch: ${{ github.ref_name }}\n"
+          CONTENT+="Environment Secret Value: ${{ env.SECRET_DATA }}\n" # <-- Imprime: SiVesEstaVariableFuncionaBien
+          
+          FILE_NAME="deployment-artifact-${TIMESTAMP}.txt"
+          echo -e "$CONTENT" > "$FILE_NAME"
+          
+          # Hacemos que el nombre del archivo sea accesible en pasos posteriores
+          echo "ARTIFACT_FILE=$FILE_NAME" >> $GITHUB_OUTPUT
 
-    - name: Upload to S3
-      run: |
-        # Crear nombre de archivo único
-        FILENAME="deployments/deploy-${{ github.sha }}-${{ github.run_id }}.json"
-        
-        # Subir a S3
-        aws s3 cp deployment-info.json s3://${{ env.S3_BUCKET }}/$FILENAME
-        
-        # También subir como latest.json
-        aws s3 cp deployment-info.json s3://${{ env.S3_BUCKET }}/deployments/latest.json
-        
-        echo "File uploaded to: s3://${{ env.S3_BUCKET }}/$FILENAME"
-        echo "Latest file: s3://${{ env.S3_BUCKET }}/deployments/latest.json"
-
-    - name: Verify S3 upload
-      run: |
-        # Verificar que el archivo existe en S3
-        aws s3 ls s3://${{ env.S3_BUCKET }}/deployments/ --recursive --human-readable
-        
-        # Obtener información del archivo latest
-        echo "=== Latest Deployment Info ==="
-        aws s3 cp s3://${{ env.S3_BUCKET }}/deployments/latest.json - || echo "Latest file not found"
+      # (3) Subir el archivo a S3 usando el Rol asumido
+      - name: Upload Artifact to S3
+        run: |
+          # S3 Path: s3://bucket-s3-pipeline-e2/objects/deployment-artifact-TIMESTAMP.txt
+          aws s3 cp ${{ steps.create_file.outputs.ARTIFACT_FILE }} \
+          s3://${{ env.BUCKET }}/${{ env.PREFIX }}/${{ steps.create_file.outputs.ARTIFACT_FILE }}
+        env:
+          AWS_PAGER: ""
