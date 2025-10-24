@@ -1,6 +1,6 @@
 name: CI/CD - OIDC S3 Upload
 
-# Ejecución automática al hacer push al branch 'main' y ejecución manual.
+# Ejecución automática al hacer push al branch 'main' y ejecución manual. (aca estoy agregando un comentario para hacer un push y probar el permiso nuevo)
 on:
   push:
     branches:
@@ -23,9 +23,9 @@ jobs:
       # CORRECCIÓN: Usar las variables exactas que tienes en GitHub (corregi aca nuevamente para ver que onda)
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-      BUCKET: ${{ vars.S3_BUCKET }}  # ⬅️ Cambiado a S3_BUCKET
+      BUCKET: ${{ vars.S3_BUCKET }}  
       PREFIX: ${{ vars.PREFIX }}
-      SECRET_DATA: ${{ secrets.MY_S3_SECRET_DATA }}  # ⬅️ Cambiado a MY_S3_SECRET_DATA (AHORA SI CREO)
+      SECRET_DATA: ${{ secrets.MY_S3_SECRET_DATA }} 
 
     steps:
       - name: Checkout Code
